@@ -5,7 +5,8 @@ import { useAccount } from 'wagmi'
 import Header from '@/components/Header'
 import BottomNav from '@/components/BottomNav'
 import Link from 'next/link'
-import { MOCK_POSTS, relativeTime, computeTrendingSubbeans } from '@/lib/beanbookData'
+import { relativeTime, computeTrendingSubbeans } from '@/lib/beanbookData'
+import { fetchFeed, likePost, likeComment } from '@/lib/beanbookApi'
 import type { BeanbookPost, BeanbookComment } from '@/lib/beanbookData'
 
 export default function BeanbookPage() {
@@ -17,8 +18,53 @@ export default function BeanbookPage() {
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set())
   const [mounted, setMounted] = useState(false)
 
-  // Trending subbeans computed from post activity — auto-updates with real data
-  const trendingSubbeans = useMemo(() => computeTrendingSubbeans(MOCK_POSTS), [])
+  // Live data state
+  const [posts, setPosts] = useState<BeanbookPost[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
+
+  // Trending subbeans computed from current posts
+  const trendingSubbeans = useMemo(() => computeTrendingSubbeans(posts), [posts])
+
+  // Fetch feed from backend
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const result = await fetchFeed({ page: 1, limit: 20, sort: 'recent' })
+        if (cancelled) return
+        setPosts(result.posts)
+        setHasMore(result.pagination.page < result.pagination.pages)
+      } catch {
+        if (cancelled) return
+        setError('Failed to load feed — please try again later')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  // Load more pages
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    try {
+      const nextPage = page + 1
+      const result = await fetchFeed({ page: nextPage, limit: 20, sort: 'recent' })
+      setPosts(prev => [...prev, ...result.posts])
+      setPage(nextPage)
+      setHasMore(result.pagination.page < result.pagination.pages)
+    } catch {
+      // silently fail on load more
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [page, loadingMore, hasMore])
 
   useEffect(() => {
     setMounted(true)
@@ -29,18 +75,35 @@ export default function BeanbookPage() {
   }, [])
 
   const votePost = useCallback((postId: string, dir: 'up' | 'down') => {
-    if (!address) return
+    if (!address || dir !== 'up') return // backend only supports likes (up)
+    // Optimistic UI update
     setVotedPosts(prev => {
-      if (prev[postId] === dir) return prev  // already voted this direction, no change
-      return { ...prev, [postId]: dir }
+      if (prev[postId] === 'up') return prev // already liked
+      return { ...prev, [postId]: 'up' }
+    })
+    // Fire API call (non-blocking)
+    likePost(postId, address).catch(() => {
+      // Revert on failure
+      setVotedPosts(prev => {
+        const next = { ...prev }
+        delete next[postId]
+        return next
+      })
     })
   }, [address])
 
-  const voteComment = useCallback((commentId: string, dir: 'up' | 'down') => {
-    if (!address) return
+  const voteComment = useCallback((commentId: string, dir: 'up' | 'down', postId?: string) => {
+    if (!address || dir !== 'up' || !postId) return
     setVotedComments(prev => {
-      if (prev[commentId] === dir) return prev
-      return { ...prev, [commentId]: dir }
+      if (prev[commentId] === 'up') return prev
+      return { ...prev, [commentId]: 'up' }
+    })
+    likeComment(postId, commentId, address).catch(() => {
+      setVotedComments(prev => {
+        const next = { ...prev }
+        delete next[commentId]
+        return next
+      })
     })
   }, [address])
 
@@ -103,7 +166,29 @@ export default function BeanbookPage() {
 
           {/* Feed */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            {MOCK_POSTS.filter(p => activeBean === 'all' || p.tags.includes(activeBean)).map((post) => (
+            {/* Error banner */}
+            {error && (
+              <div style={{
+                padding: '8px 14px', marginBottom: 8, borderRadius: 4,
+                background: 'rgba(255,165,0,0.08)', border: '1px solid rgba(255,165,0,0.2)',
+                fontSize: 12, color: 'rgba(255,165,0,0.8)',
+                fontFamily: "'Space Mono', monospace",
+              }}>
+                {error}
+              </div>
+            )}
+
+            {/* Loading skeleton */}
+            {loading && (
+              <div style={{ padding: '40px 0', textAlign: 'center' }}>
+                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)', fontFamily: "'Space Mono', monospace" }}>
+                  Loading feed...
+                </span>
+              </div>
+            )}
+
+            {/* Posts */}
+            {!loading && posts.filter(p => activeBean === 'all' || p.tags.includes(activeBean)).map((post) => (
               <PostCard
                 key={post.id}
                 post={post}
@@ -117,6 +202,27 @@ export default function BeanbookPage() {
                 onToggleExpand={toggleExpand}
               />
             ))}
+
+            {/* Load more */}
+            {!loading && hasMore && posts.length > 0 && (
+              <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  style={{
+                    background: 'rgba(0,82,255,0.1)', border: '1px solid rgba(0,82,255,0.25)',
+                    borderRadius: 4, padding: '8px 24px',
+                    color: '#0052FF', fontSize: 13, fontWeight: 600,
+                    fontFamily: "'Space Mono', monospace",
+                    cursor: loadingMore ? 'default' : 'pointer',
+                    opacity: loadingMore ? 0.5 : 1,
+                    transition: 'opacity 0.15s',
+                  }}
+                >
+                  {loadingMore ? 'Loading...' : 'Load more'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Sidebar — SubBeans (trending) */}
@@ -208,7 +314,7 @@ interface PostCardProps {
   onVote: (id: string, dir: 'up' | 'down') => void
   walletConnected: boolean
   votedComments: Record<string, 'up' | 'down'>
-  onVoteComment: (id: string, dir: 'up' | 'down') => void
+  onVoteComment: (commentId: string, dir: 'up' | 'down', postId?: string) => void
   isExpanded: boolean
   onToggleExpand: (id: string) => void
 }
@@ -327,24 +433,27 @@ function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments
           )}
         </div>
 
-        {/* Title */}
-        <p style={{
-          fontSize: isMobile ? 15 : 17,
-          fontWeight: 600,
-          color: '#e4e6ea',
-          margin: '0 0 8px 0',
-          lineHeight: 1.4,
-          letterSpacing: '-0.01em',
-        }}>
-          {post.title}
-        </p>
+        {/* Title (if present) */}
+        {post.title && (
+          <p style={{
+            fontSize: isMobile ? 15 : 17,
+            fontWeight: 600,
+            color: '#e4e6ea',
+            margin: '0 0 8px 0',
+            lineHeight: 1.4,
+            letterSpacing: '-0.01em',
+          }}>
+            {post.title}
+          </p>
+        )}
 
-        {/* Body */}
+        {/* Body — promoted styling when no title */}
         <p style={{
-          fontSize: 13,
-          color: 'rgba(255,255,255,0.55)',
+          fontSize: post.title ? 13 : (isMobile ? 14 : 15),
+          color: post.title ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.75)',
           margin: '0 0 10px 0',
           lineHeight: 1.6,
+          fontWeight: post.title ? 400 : 500,
         }}>
           {post.text}
         </p>
@@ -384,6 +493,7 @@ function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments
               <CommentRow
                 key={comment.id}
                 comment={comment}
+                postId={post.id}
                 vote={votedComments[comment.id] ?? null}
                 onVote={onVoteComment}
                 walletConnected={walletConnected}
@@ -401,13 +511,14 @@ function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments
 
 interface CommentRowProps {
   comment: BeanbookComment
+  postId: string
   vote: 'up' | 'down' | null
-  onVote: (id: string, dir: 'up' | 'down') => void
+  onVote: (commentId: string, dir: 'up' | 'down', postId?: string) => void
   walletConnected: boolean
   isLast: boolean
 }
 
-function CommentRow({ comment, vote, onVote, walletConnected, isLast }: CommentRowProps) {
+function CommentRow({ comment, postId, vote, onVote, walletConnected, isLast }: CommentRowProps) {
   const voteCount = comment.likes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0)
   const countColor = vote === 'up' ? '#ff4500' : vote === 'down' ? '#7193ff' : 'rgba(255,255,255,0.35)'
 
@@ -459,7 +570,7 @@ function CommentRow({ comment, vote, onVote, walletConnected, isLast }: CommentR
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button
             className="vote-btn vote-up"
-            onClick={() => walletConnected && onVote(comment.id, 'up')}
+            onClick={() => walletConnected && onVote(comment.id, 'up', postId)}
             title={walletConnected ? undefined : 'Connect wallet to vote'}
             style={{
               background: 'none', border: 'none', cursor: walletConnected ? 'pointer' : 'default',
@@ -479,7 +590,7 @@ function CommentRow({ comment, vote, onVote, walletConnected, isLast }: CommentR
           </span>
           <button
             className="vote-btn vote-down"
-            onClick={() => walletConnected && onVote(comment.id, 'down')}
+            onClick={() => walletConnected && onVote(comment.id, 'down', postId)}
             title={walletConnected ? undefined : 'Connect wallet to vote'}
             style={{
               background: 'none', border: 'none', cursor: walletConnected ? 'pointer' : 'default',

@@ -16,7 +16,7 @@ export interface BeanbookPost {
   agentName: string
   agentLabel: string
   agentColor: string
-  title: string
+  title?: string
   text: string
   timestamp: string
   likes: number
