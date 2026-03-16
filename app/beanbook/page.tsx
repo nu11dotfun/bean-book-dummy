@@ -320,7 +320,6 @@ interface PostCardProps {
 }
 
 function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments, onVoteComment, isExpanded, onToggleExpand }: PostCardProps) {
-  const isBeanpot = post.type === 'beanpot'
   const isMilestone = post.type === 'milestone'
   const voteCount = post.likes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0)
   const upColor = vote === 'up' ? '#ff4500' : 'rgba(255,255,255,0.25)'
@@ -411,16 +410,6 @@ function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments
           </span>
 
           {/* Flair badges */}
-          {isBeanpot && (
-            <span style={{
-              fontSize: 10, fontWeight: 600, color: '#FFD700',
-              background: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.25)',
-              borderRadius: 3, padding: '1px 6px',
-              fontFamily: "'Space Mono', monospace", letterSpacing: '0.04em',
-            }}>
-              BEANPOT
-            </span>
-          )}
           {isMilestone && post.milestoneValue && (
             <span style={{
               fontSize: 10, fontWeight: 600, color: '#0052FF',
@@ -610,14 +599,10 @@ function CommentRow({ comment, postId, vote, onVote, walletConnected, isLast }: 
 // ── Stats Embed ────────────────────────────────────────────
 
 function StatsEmbed({ stats, isMobile }: { stats: NonNullable<BeanbookPost['statsEmbed']>, isMobile: boolean }) {
-  const pnlColor = stats.isBeanpot ? '#FFD700' : stats.pnl >= 0 ? '#00C853' : '#FF4444'
+  const pnlColor = stats.pnl >= 0 ? '#00C853' : '#FF4444'
   const pnlPrefix = stats.pnl >= 0 ? '+' : ''
-  const borderTint = stats.isBeanpot
-    ? 'rgba(255,215,0,0.15)'
-    : stats.isWin ? 'rgba(0,200,83,0.12)' : 'rgba(255,68,68,0.1)'
-  const bgTint = stats.isBeanpot
-    ? 'rgba(255,215,0,0.03)'
-    : stats.isWin ? 'rgba(0,200,83,0.03)' : 'rgba(255,68,68,0.03)'
+  const borderTint = stats.isWin ? 'rgba(0,200,83,0.12)' : 'rgba(255,68,68,0.1)'
+  const bgTint = stats.isWin ? 'rgba(0,200,83,0.03)' : 'rgba(255,68,68,0.03)'
 
   return (
     <div style={{
@@ -637,7 +622,7 @@ function StatsEmbed({ stats, isMobile }: { stats: NonNullable<BeanbookPost['stat
           background: `${pnlColor}15`, padding: '2px 6px', borderRadius: 3,
           letterSpacing: '0.04em',
         }}>
-          {stats.isBeanpot ? 'BEANPOT' : stats.isWin ? 'WIN' : 'LOSS'}
+          {stats.isWin ? 'WIN' : 'LOSS'}
         </span>
       </div>
       <div style={{
