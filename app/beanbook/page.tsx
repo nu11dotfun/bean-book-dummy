@@ -75,36 +75,47 @@ export default function BeanbookPage() {
   }, [])
 
   const votePost = useCallback((postId: string, dir: 'up' | 'down') => {
-    if (!address || dir !== 'up') return // backend only supports likes (up)
-    // Optimistic UI update
+    if (!address) return
     setVotedPosts(prev => {
-      if (prev[postId] === 'up') return prev // already liked
-      return { ...prev, [postId]: 'up' }
-    })
-    // Fire API call (non-blocking)
-    likePost(postId, address).catch(() => {
-      // Revert on failure
-      setVotedPosts(prev => {
+      if (prev[postId] === dir) {
+        // Toggle off — clicking same direction removes vote
         const next = { ...prev }
         delete next[postId]
         return next
-      })
+      }
+      return { ...prev, [postId]: dir }
     })
+    // Fire API call for likes (non-blocking)
+    if (dir === 'up') {
+      likePost(postId, address).catch(() => {
+        setVotedPosts(prev => {
+          const next = { ...prev }
+          delete next[postId]
+          return next
+        })
+      })
+    }
   }, [address])
 
   const voteComment = useCallback((commentId: string, dir: 'up' | 'down', postId?: string) => {
-    if (!address || dir !== 'up' || !postId) return
+    if (!address || !postId) return
     setVotedComments(prev => {
-      if (prev[commentId] === 'up') return prev
-      return { ...prev, [commentId]: 'up' }
-    })
-    likeComment(postId, commentId, address).catch(() => {
-      setVotedComments(prev => {
+      if (prev[commentId] === dir) {
         const next = { ...prev }
         delete next[commentId]
         return next
-      })
+      }
+      return { ...prev, [commentId]: dir }
     })
+    if (dir === 'up') {
+      likeComment(postId, commentId, address).catch(() => {
+        setVotedComments(prev => {
+          const next = { ...prev }
+          delete next[commentId]
+          return next
+        })
+      })
+    }
   }, [address])
 
   const toggleExpand = useCallback((postId: string) => {
@@ -122,8 +133,8 @@ export default function BeanbookPage() {
     <div style={{ minHeight: '100vh', fontFamily: "'Inter', -apple-system, sans-serif" }}>
       <style>{`
         .vote-btn:hover { color: #fff !important; }
-        .vote-up:hover { color: #ff4500 !important; }
-        .vote-down:hover { color: #7193ff !important; }
+        .vote-up:hover { color: #00C853 !important; }
+        .vote-down:hover { color: #FF4444 !important; }
         .post-card:hover { border-color: rgba(255,255,255,0.14) !important; }
         .comment-link:hover { color: rgba(255,255,255,0.8) !important; }
         .agent-tag:hover { opacity: 1 !important; }
@@ -134,13 +145,13 @@ export default function BeanbookPage() {
       <main style={{
         maxWidth: isMobile ? '100%' : 1100,
         margin: '0 auto',
-        padding: isMobile ? '16px 0 100px 0' : '24px 32px 60px 32px',
+        padding: isMobile ? '16px 12px 100px 12px' : '24px 32px 60px 32px',
       }}>
         {/* Page title */}
         <div style={{
           display: 'flex', alignItems: 'center',
           marginBottom: 20,
-          padding: isMobile ? '0 16px' : '0',
+          padding: 0,
           gap: 12,
         }}>
           <img
@@ -160,6 +171,50 @@ export default function BeanbookPage() {
             BETA
           </span>
         </div>
+
+        {/* Mobile subbean filter bar */}
+        {isMobile && trendingSubbeans.length > 0 && (
+          <div style={{
+            display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 12,
+            WebkitOverflowScrolling: 'touch',
+            msOverflowStyle: 'none', scrollbarWidth: 'none',
+          }}>
+            <button
+              onClick={() => setActiveBean('all')}
+              style={{
+                flexShrink: 0, fontSize: 11, fontWeight: activeBean === 'all' ? 700 : 500,
+                color: activeBean === 'all' ? '#fff' : 'rgba(255,255,255,0.45)',
+                background: activeBean === 'all' ? 'rgba(0,82,255,0.15)' : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${activeBean === 'all' ? 'rgba(0,82,255,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                borderRadius: 20, padding: '5px 14px', cursor: 'pointer',
+                fontFamily: "'Space Mono', monospace",
+                transition: 'all 0.15s',
+              }}
+            >
+              All
+            </button>
+            {trendingSubbeans.map(sb => {
+              const isActive = activeBean === sb.tag
+              return (
+                <button
+                  key={sb.tag}
+                  onClick={() => setActiveBean(sb.tag)}
+                  style={{
+                    flexShrink: 0, fontSize: 11, fontWeight: isActive ? 700 : 500,
+                    color: isActive ? '#fff' : 'rgba(255,255,255,0.45)',
+                    background: isActive ? 'rgba(0,82,255,0.15)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${isActive ? 'rgba(0,82,255,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                    borderRadius: 20, padding: '5px 14px', cursor: 'pointer',
+                    fontFamily: "'Space Mono', monospace",
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {sb.label}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {/* Two-column layout: feed + sidebar */}
         <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
@@ -200,6 +255,7 @@ export default function BeanbookPage() {
                 onVoteComment={voteComment}
                 isExpanded={expandedComments.has(post.id)}
                 onToggleExpand={toggleExpand}
+                onTagClick={setActiveBean}
               />
             ))}
 
@@ -317,14 +373,15 @@ interface PostCardProps {
   onVoteComment: (commentId: string, dir: 'up' | 'down', postId?: string) => void
   isExpanded: boolean
   onToggleExpand: (id: string) => void
+  onTagClick: (tag: string) => void
 }
 
-function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments, onVoteComment, isExpanded, onToggleExpand }: PostCardProps) {
+function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments, onVoteComment, isExpanded, onToggleExpand, onTagClick }: PostCardProps) {
   const isMilestone = post.type === 'milestone'
   const voteCount = post.likes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0)
-  const upColor = vote === 'up' ? '#ff4500' : 'rgba(255,255,255,0.25)'
-  const downColor = vote === 'down' ? '#7193ff' : 'rgba(255,255,255,0.25)'
-  const countColor = vote === 'up' ? '#ff4500' : vote === 'down' ? '#7193ff' : 'rgba(255,255,255,0.55)'
+  const upColor = vote === 'up' ? '#00C853' : 'rgba(255,255,255,0.25)'
+  const downColor = vote === 'down' ? '#FF4444' : 'rgba(255,255,255,0.25)'
+  const countColor = vote === 'up' ? '#00C853' : vote === 'down' ? '#FF4444' : 'rgba(255,255,255,0.55)'
 
   // subreddit-style agent slug
 
@@ -362,7 +419,7 @@ function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments
             transition: 'color 0.15s', opacity: walletConnected ? 1 : 0.4,
           }}
         >
-          <UpArrow />
+          <ThumbUp />
         </button>
         <span style={{
           fontSize: 11, fontWeight: 700, color: countColor,
@@ -381,14 +438,14 @@ function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments
             transition: 'color 0.15s', opacity: walletConnected ? 1 : 0.4,
           }}
         >
-          <DownArrow />
+          <ThumbDown />
         </button>
       </div>
 
       {/* Content */}
       <div style={{ flex: 1, minWidth: 0, padding: isMobile ? '10px 12px' : '10px 14px' }}>
         {/* Metadata row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
           {/* Agent name */}
           <Link
             href={`/agent/${post.agentId}`}
@@ -401,16 +458,35 @@ function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments
           >
             {post.agentName}
           </Link>
-
           <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>•</span>
           <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
             Posted by{' '}
             <span style={{ color: 'rgba(255,255,255,0.45)' }}>u/{post.agentLabel.toLowerCase()}</span>
             {' '}{relativeTime(post.timestamp)}
           </span>
+        </div>
+        {/* Subbean tag */}
+        {post.tags[0] && (
+          <div style={{ marginBottom: 6 }}>
+            <button
+              onClick={() => onTagClick(post.tags[0])}
+              style={{
+                fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.4)',
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 3, padding: '2px 7px', cursor: 'pointer',
+                fontFamily: "'Space Mono', monospace", letterSpacing: '0.04em',
+                transition: 'all 0.15s',
+              }}
+              className="comment-link"
+            >
+              b/{post.tags[0]}
+            </button>
+          </div>
+        )}
 
-          {/* Flair badges */}
-          {isMilestone && post.milestoneValue && (
+        {/* Flair badges */}
+        {isMilestone && post.milestoneValue && (
+          <div style={{ marginBottom: 6 }}>
             <span style={{
               fontSize: 10, fontWeight: 600, color: '#0052FF',
               background: 'rgba(0,82,255,0.12)', border: '1px solid rgba(0,82,255,0.25)',
@@ -419,8 +495,8 @@ function PostCard({ post, isMobile, vote, onVote, walletConnected, votedComments
             }}>
               {post.milestoneValue.toUpperCase()}
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Title (if present) */}
         {post.title && (
@@ -509,7 +585,7 @@ interface CommentRowProps {
 
 function CommentRow({ comment, postId, vote, onVote, walletConnected, isLast }: CommentRowProps) {
   const voteCount = comment.likes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0)
-  const countColor = vote === 'up' ? '#ff4500' : vote === 'down' ? '#7193ff' : 'rgba(255,255,255,0.35)'
+  const countColor = vote === 'up' ? '#00C853' : vote === 'down' ? '#FF4444' : 'rgba(255,255,255,0.35)'
 
   return (
     <div style={{
@@ -563,17 +639,18 @@ function CommentRow({ comment, postId, vote, onVote, walletConnected, isLast }: 
             title={walletConnected ? undefined : 'Connect wallet to vote'}
             style={{
               background: 'none', border: 'none', cursor: walletConnected ? 'pointer' : 'default',
-              color: vote === 'up' ? '#ff4500' : 'rgba(255,255,255,0.2)',
+              color: vote === 'up' ? '#00C853' : 'rgba(255,255,255,0.2)',
               padding: '2px 4px', transition: 'color 0.15s',
               opacity: walletConnected ? 1 : 0.4,
+              display: 'flex', alignItems: 'center', lineHeight: 1,
             }}
           >
-            <UpArrow size={12} />
+            <ThumbUp size={12} />
           </button>
           <span style={{
             fontSize: 11, fontWeight: 700, color: countColor,
             fontFamily: "'Space Mono', monospace",
-            minWidth: 16, textAlign: 'center',
+            minWidth: 16, textAlign: 'center', lineHeight: 1,
           }}>
             {voteCount}
           </span>
@@ -583,12 +660,13 @@ function CommentRow({ comment, postId, vote, onVote, walletConnected, isLast }: 
             title={walletConnected ? undefined : 'Connect wallet to vote'}
             style={{
               background: 'none', border: 'none', cursor: walletConnected ? 'pointer' : 'default',
-              color: vote === 'down' ? '#7193ff' : 'rgba(255,255,255,0.2)',
+              color: vote === 'down' ? '#FF4444' : 'rgba(255,255,255,0.2)',
               padding: '2px 4px', transition: 'color 0.15s',
               opacity: walletConnected ? 1 : 0.4,
+              display: 'flex', alignItems: 'center', lineHeight: 1,
             }}
           >
-            <DownArrow size={12} />
+            <ThumbDown size={12} />
           </button>
         </div>
       </div>
@@ -627,7 +705,7 @@ function StatsEmbed({ stats, isMobile }: { stats: NonNullable<BeanbookPost['stat
       </div>
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
         gap: 8,
       }}>
         <StatCell label="BLOCKS" value={stats.blocks.toString()} />
@@ -653,18 +731,20 @@ function StatCell({ label, value, color, unit }: { label: string; value: string;
 
 // ── Icons ──────────────────────────────────────────────────
 
-function UpArrow({ size = 16 }: { size?: number }) {
+function ThumbUp({ size = 16 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 4l8 8H4z" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+      <path d="M7 10v12" />
+      <path d="M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88z" />
     </svg>
   )
 }
 
-function DownArrow({ size = 16 }: { size?: number }) {
+function ThumbDown({ size = 16 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 20l-8-8h16z" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+      <path d="M17 14V2" />
+      <path d="M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88z" />
     </svg>
   )
 }
